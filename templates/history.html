@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Riwayat - MeetingAssist</title>
+    <link rel="stylesheet" href="/static/css/bootstrap.min.css">
+    <link rel="stylesheet" href="/static/css/custom.css">
+</head>
+
+<body>
+    <div class="sidebar">
+        <h3 class="text-center mb-4 mt-2">MeetingAssist</h3>
+        <a href="/dashboard" class="sidebar-link">Dashboard</a>
+        <a href="/audio/upload" class="sidebar-link">Unggah Audio</a>
+        <a href="/document/upload" class="sidebar-link">Unggah Dokumen</a>
+        <a href="/history" class="sidebar-link active">Riwayat</a>
+        <a href="/profile" class="sidebar-link">Profil</a>
+        <a href="#" onclick="removeToken()" class="sidebar-link text-danger">Keluar</a>
+    </div>
+
+    <div class="main-content">
+        <button id="sidebar-toggle" class="btn btn-outline-dark d-md-none mb-3">☰</button>
+        <h2 class="mb-4">Riwayat</h2>
+
+        <ul class="nav nav-tabs mb-4" id="historyTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="audio-tab" data-bs-toggle="tab" data-bs-target="#audio"
+                    type="button" role="tab">Transkrip Audio</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="document-tab" data-bs-toggle="tab" data-bs-target="#document" type="button"
+                    role="tab">OCR Dokumen</button>
+            </li>
+        </ul>
+
+        <div class="tab-content" id="historyTabsContent">
+            <div class="tab-pane fade show active" id="audio" role="tabpanel">
+                <div class="card p-3">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Nama File</th>
+                                    <th>Tanggal</th>
+                                    <th>Status</th>
+                                    <th>Aksi</th>
+                                </tr>
+                            </thead>
+                            <tbody id="audio-list">
+                                <tr>
+                                    <td colspan="4" class="text-center">Memuat...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="tab-pane fade" id="document" role="tabpanel">
+                <div class="card p-3">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Nama File</th>
+                                    <th>Tanggal</th>
+                                    <th>Status</th>
+                                    <th>Aksi</th>
+                                </tr>
+                            </thead>
+                            <tbody id="document-list">
+                                <tr>
+                                    <td colspan="4" class="text-center">Memuat...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <footer class="text-center py-3 mt-4">
+            <p class="mb-0 text-muted">By <a href="https://instagram.com/ibnu.jz"
+                    class="text-dark text-decoration-none fw-bold" target="_blank">@ibnu.jz</a></p>
+        </footer>
+    </div>
+
+    <div id="toast-container" class="toast-container"></div>
+    <script src="/static/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/app.js"></script>
+    <script>
+        checkAuth();
+
+        async function loadHistory() {
+            try {
+                const audios = await apiCall('/audio');
+                const audioList = document.getElementById('audio-list');
+                audioList.innerHTML = '';
+                if (audios.data.length === 0) {
+                    audioList.innerHTML = '<tr><td colspan="4" class="text-center">Tidak ada file audio ditemukan</td></tr>';
+                } else {
+                    audios.data.forEach(item => {
+                        const date = new Date(item.created_at).toLocaleDateString();
+                        let statusBadge = 'secondary';
+                        if (item.status === 'completed') statusBadge = 'success';
+                        else if (item.status === 'failed') statusBadge = 'danger';
+                        else if (item.status === 'processing' || item.status === 'pending') statusBadge = 'warning';
+
+                        audioList.innerHTML += `
+                            <tr>
+                                <td>${item.filename}</td>
+                                <td>${date}</td>
+                                <td><span class="badge bg-${statusBadge}">${item.status}</span></td>
+                                <td>
+                                    ${item.status === 'completed' ? `<a href="/editor/audio/${item.id}" class="btn btn-sm btn-primary">Lihat/Edit</a>` : ''}
+                                </td>
+                            </tr>
+                        `;
+                    });
+                }
+
+                const docs = await apiCall('/document');
+                const docList = document.getElementById('document-list');
+                docList.innerHTML = '';
+                if (docs.data.length === 0) {
+                    docList.innerHTML = '<tr><td colspan="4" class="text-center">Tidak ada dokumen ditemukan</td></tr>';
+                } else {
+                    docs.data.forEach(item => {
+                        const date = new Date(item.created_at).toLocaleDateString();
+                        let statusBadge = 'secondary';
+                        if (item.status === 'completed') statusBadge = 'success';
+                        else if (item.status === 'failed') statusBadge = 'danger';
+                        else if (item.status === 'processing' || item.status === 'pending') statusBadge = 'warning';
+
+                        docList.innerHTML += `
+                            <tr>
+                                <td>${item.filename}</td>
+                                <td>${date}</td>
+                                <td><span class="badge bg-${statusBadge}">${item.status}</span></td>
+                                <td>
+                                    ${item.status === 'completed' ? `<a href="/editor/document/${item.id}" class="btn btn-sm btn-primary">Lihat/Edit</a>` : ''}
+                                </td>
+                            </tr>
+                        `;
+                    });
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        loadHistory();
+
+        // Auto refresh every 5 seconds
+        setInterval(loadHistory, 5000);
+
+        // Handle hash navigation to switch tabs
+        function switchToTab() {
+            const hash = window.location.hash;
+            if (hash === '#document') {
+                const documentTab = document.getElementById('document-tab');
+                if (documentTab) {
+                    documentTab.click();
+                }
+            } else if (hash === '#audio') {
+                const audioTab = document.getElementById('audio-tab');
+                if (audioTab) {
+                    audioTab.click();
+                }
+            }
+        }
+
+        // Switch tab on load and hash change
+        window.addEventListener('load', switchToTab);
+        window.addEventListener('hashchange', switchToTab);
+    </script>
+</body>
+
+</html>

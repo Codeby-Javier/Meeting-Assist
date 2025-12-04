@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Unggah Audio - MeetingAssist</title>
+    <link rel="stylesheet" href="/static/css/bootstrap.min.css">
+    <link rel="stylesheet" href="/static/css/custom.css">
+</head>
+
+<body>
+    <div class="sidebar">
+        <h3 class="text-center mb-4 mt-2">MeetingAssist</h3>
+        <a href="/dashboard" class="sidebar-link">Dashboard</a>
+        <a href="/audio/upload" class="sidebar-link active">Unggah Audio</a>
+        <a href="/document/upload" class="sidebar-link">Unggah Dokumen</a>
+        <a href="/history" class="sidebar-link">Riwayat</a>
+        <a href="/profile" class="sidebar-link">Profil</a>
+        <a href="#" onclick="removeToken()" class="sidebar-link text-danger">Keluar</a>
+    </div>
+
+    <div class="main-content">
+        <button id="sidebar-toggle" class="btn btn-outline-dark d-md-none mb-3">☰</button>
+        <h2 class="mb-4">Unggah Audio</h2>
+
+        <div class="card p-5">
+            <div class="alert alert-info">
+                <strong>Catatan:</strong> Pastikan suara rekaman kamu minim noise ya.
+            </div>
+
+            <div class="upload-area" id="drop-zone">
+                <!-- SVG Icon for Audio -->
+                <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" fill="currentColor"
+                    class="bi bi-mic mb-3 text-primary" viewBox="0 0 16 16">
+                    <path
+                        d="M3.5 6.5A.5.5 0 0 1 4 7v1a4 4 0 0 0 8 0V7a.5.5 0 0 1 1 0v1a5 5 0 0 1-4.5 4.975V15h3a.5.5 0 0 1 0 1h-7a.5.5 0 0 1 0-1h3v-2.025A5 5 0 0 1 3 8V7a.5.5 0 0 1 .5-.5z" />
+                    <path
+                        d="M10 8a2 2 0 1 1-4 0V3a2 2 0 1 1 4 0v5zM8 0a3 3 0 0 0-3 3v5a3 3 0 0 0 6 0V3a3 3 0 0 0-3-3z" />
+                </svg>
+                <h4>Tarik & Lepas File Audio Di Sini</h4>
+                <p class="text-muted mb-2">Maksimal file 5MB</p>
+                <p>atau</p>
+                <input type="file" id="audioInput" accept="audio/*" class="d-none">
+                <button class="btn btn-primary" onclick="document.getElementById('audioInput').click()">Pilih
+                    File</button>
+            </div>
+
+            <div class="mt-4">
+                <div class="progress">
+                    <div id="progress-bar" class="progress-bar" role="progressbar" style="width: 0%"></div>
+                </div>
+            </div>
+        </div>
+
+        <footer class="text-center py-3 mt-4">
+            <p class="mb-0 text-muted">By <a href="https://instagram.com/ibnu.jz"
+                    class="text-dark text-decoration-none fw-bold" target="_blank">@ibnu.jz</a></p>
+        </footer>
+    </div>
+
+    <div id="toast-container" class="toast-container"></div>
+    <script src="/static/js/app.js"></script>
+    <script>
+        checkAuth();
+
+        const dropZone = document.getElementById('drop-zone');
+        const audioInput = document.getElementById('audioInput');
+
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.style.borderColor = 'var(--primary-color)';
+        });
+
+        dropZone.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            dropZone.style.borderColor = '#ccc';
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.style.borderColor = '#ccc';
+            audioInput.files = e.dataTransfer.files;
+            handleFileUpload('audioInput', '/audio/upload', 'audio');
+        });
+
+        audioInput.addEventListener('change', () => {
+            handleFileUpload('audioInput', '/audio/upload', 'audio');
+        });
+    </script>
+</body>
+
+</html>

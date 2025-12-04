@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - MeetingAssist</title>
+    <link rel="stylesheet" href="/static/css/bootstrap.min.css">
+    <link rel="stylesheet" href="/static/css/custom.css">
+</head>
+
+<body>
+    <div class="sidebar">
+        <h3 class="text-center mb-4 mt-2">MeetingAssist</h3>
+        <a href="/dashboard" class="sidebar-link active">Dashboard</a>
+        <a href="/audio/upload" class="sidebar-link">Unggah Audio</a>
+        <a href="/document/upload" class="sidebar-link">Unggah Dokumen</a>
+        <a href="/history" class="sidebar-link">Riwayat</a>
+        <a href="/profile" class="sidebar-link">Profil</a>
+        <a href="#" onclick="removeToken()" class="sidebar-link text-danger">Keluar</a>
+    </div>
+
+    <div class="main-content">
+        <button id="sidebar-toggle" class="btn btn-outline-dark d-md-none mb-3">☰</button>
+        <h2 class="mb-4">Dashboard</h2>
+
+        <div class="row">
+            <div class="col-md-4">
+                <div class="card p-3 bg-primary text-white mb-3">
+                    <h5>Total Audio</h5>
+                    <h2 id="total-audios">0</h2>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card p-3 bg-success text-white mb-3">
+                    <h5>Total Dokumen</h5>
+                    <h2 id="total-documents">0</h2>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card p-3 bg-info text-white mb-3">
+                    <h5>Penyimpanan Terpakai</h5>
+                    <h2 id="storage-used">0 MB</h2>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mt-4">
+            <div class="col-md-6">
+                <div class="card p-4 mb-3">
+                    <h4>Aksi Cepat</h4>
+                    <div class="d-grid gap-2">
+                        <a href="/audio/upload" class="btn btn-outline-primary">Transkripsi Audio Baru</a>
+                        <a href="/document/upload" class="btn btn-outline-success">Pindai Dokumen Baru</a>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card p-4 mb-3">
+                    <h4>Aktivitas Terbaru</h4>
+                    <ul class="list-group list-group-flush" id="recent-activity">
+                        <li class="list-group-item">Memuat...</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <footer class="text-center py-3 mt-4">
+            <p class="mb-0 text-muted">By <a href="https://instagram.com/ibnu.jz"
+                    class="text-dark text-decoration-none fw-bold" target="_blank">@ibnu.jz</a></p>
+        </footer>
+    </div>
+
+    <div id="toast-container" class="toast-container"></div>
+    <script src="/static/js/app.js"></script>
+    <script>
+        checkAuth();
+
+        async function loadStats() {
+            try {
+                const audios = await apiCall('/audio');
+                document.getElementById('total-audios').innerText = audios.data.length;
+
+                const docs = await apiCall('/document');
+                document.getElementById('total-documents').innerText = docs.data.length;
+
+                // Mock storage
+                document.getElementById('storage-used').innerText = '12 MB';
+
+                const list = document.getElementById('recent-activity');
+                list.innerHTML = '';
+                const allItems = [...audios.data, ...docs.data].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+                if (allItems.length === 0) {
+                    list.innerHTML = '<li class="list-group-item">Belum ada aktivitas</li>';
+                } else {
+                    allItems.slice(0, 5).forEach(item => {
+                        const li = document.createElement('li');
+                        li.className = 'list-group-item';
+                        li.innerText = `${item.filename} - ${item.status}`;
+                        list.appendChild(li);
+                    });
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+        loadStats();
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Editor Audio - MeetingAssist</title>
+    <link rel="stylesheet" href="/static/css/bootstrap.min.css">
+    <link rel="stylesheet" href="/static/css/custom.css">
+</head>
+
+<body>
+    <div class="sidebar">
+        <h3 class="text-center mb-4 mt-2">MeetingAssist</h3>
+        <a href="/dashboard" class="sidebar-link">Dashboard</a>
+        <a href="/audio/upload" class="sidebar-link">Unggah Audio</a>
+        <a href="/document/upload" class="sidebar-link">Unggah Dokumen</a>
+        <a href="/history" class="sidebar-link active">Riwayat</a>
+        <a href="/profile" class="sidebar-link">Profil</a>
+        <a href="#" onclick="removeToken()" class="sidebar-link text-danger">Keluar</a>
+    </div>
+
+    <div class="main-content">
+        <button id="sidebar-toggle" class="btn btn-outline-dark d-md-none mb-3">☰</button>
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2>Editor Audio</h2>
+            <div>
+                <button class="btn btn-success me-2" onclick="saveTranscript()">Simpan Perubahan</button>
+                <div class="btn-group">
+                    <button type="button" class="btn btn-secondary dropdown-toggle"
+                        data-bs-toggle="dropdown">Ekspor</button>
+                    <ul class="dropdown-menu">
+                        <li><a class="dropdown-item" href="#" onclick="exportFile('pdf')">PDF</a></li>
+                        <li><a class="dropdown-item" href="#" onclick="exportFile('docx')">Word</a></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="card p-4">
+            <h5 id="filename">Memuat...</h5>
+            <audio id="audio-player" controls class="w-100 mb-3"></audio>
+
+            <div class="form-group">
+                <label class="form-label">Transkrip</label>
+                <textarea id="transcript-editor" class="form-control" rows="15"></textarea>
+            </div>
+        </div>
+
+        <footer class="text-center py-3 mt-4">
+            <p class="mb-0 text-muted">By <a href="https://instagram.com/ibnu.jz"
+                    class="text-dark text-decoration-none fw-bold" target="_blank">@ibnu.jz</a></p>
+        </footer>
+    </div>
+
+    <div id="toast-container" class="toast-container"></div>
+    <script src="/static/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/app.js"></script>
+    <script>
+        checkAuth();
+        const id = window.location.pathname.split('/').pop();
+        let currentFilename = 'transcript';
+
+        async function loadData() {
+            try {
+                const res = await apiCall(`/audio/${id}`);
+                const data = res.data;
+                document.getElementById('filename').innerText = data.filename;
+                const audioUrl = '/' + data.file_path.replace(/\\/g, '/');
+                document.getElementById('audio-player').src = audioUrl;
+
+                if (data.transcripts && data.transcripts.length > 0) {
+                    document.getElementById('transcript-editor').value = data.transcripts[0].text;
+                }
+                currentFilename = data.filename.split('.')[0];
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function saveTranscript() {
+            const text = document.getElementById('transcript-editor').value;
+            try {
+                await apiCall(`/audio/${id}`, 'PUT', { text });
+                showToast('Transkrip berhasil disimpan', 'success');
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function exportFile(type) {
+            const content = document.getElementById('transcript-editor').value;
+            try {
+                const token = getToken();
+                const response = await fetch(`/api/export/${type}`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ content, filename: currentFilename })
+                });
+
+                if (!response.ok) throw new Error('Ekspor gagal');
+
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${currentFilename}.${type}`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+            } catch (e) {
+                showToast(e.message, 'danger');
+            }
+        }
+
+        // Auto-save every 30s
+        setInterval(() => {
+            if (document.getElementById('transcript-editor').value) {
+                saveTranscript();
+            }
+        }, 30000);
+
+        loadData();
+    </script>
+</body>
+
+</html>
