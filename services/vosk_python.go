@@ -5,10 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"mime/multipart"
 	"net/http"
 	"os"
-	"path/filepath"
 	"time"
 )
 
@@ -31,10 +29,8 @@ type AssemblyAITranscriptResponse struct {
 var speechService *SpeechService
 
 func InitVosk() {
-	// Kunci Testing Public
-	// Jika ini limit, User harus daftar di assemblyai.com (gratis)
 	speechService = &SpeechService{
-		APIKey: "4d2a2e6811d04ea99f0c5fa89090ddc6",
+		APIKey: "4d2a2e6811d04ea99f0c5fa89090ddc6", // Public Test Key
 	}
 }
 
@@ -46,64 +42,73 @@ func GetVoskService() *SpeechService {
 }
 
 func (s *SpeechService) Transcribe(audioPath string) (string, error) {
-	// Step 1: Upload (Multipart - Lebih Stabil)
-	uploadURL, err := s.uploadAudioMultipart(audioPath)
-	if err != nil {
-		return "", fmt.Errorf("Upload Gagal: %v", err)
+	fmt.Printf("[ASSEMBLYAI] Starting processing for: %s\n", audioPath)
+
+	// Cek file ada atau tidak
+	if _, err := os.Stat(audioPath); os.IsNotExist(err) {
+		return "", fmt.Errorf("File audio tidak ditemukan di server: %s", audioPath)
 	}
 
-	// Step 2: Request Transcription
+	// 1. Upload
+	uploadURL, err := s.uploadAudioChunked(audioPath)
+	if err != nil {
+		fmt.Printf("[ASSEMBLYAI] Upload Error: %v\n", err)
+		return "", fmt.Errorf("Upload Gagal (Cek Koneksi): %v", err)
+	}
+	fmt.Printf("[ASSEMBLYAI] Upload Success: %s\n", uploadURL)
+
+	// 2. Transcribe
 	transcriptID, err := s.requestTranscription(uploadURL)
 	if err != nil {
-		return "", fmt.Errorf("Request Gagal: %v", err)
+		fmt.Printf("[ASSEMBLYAI] Request Error: %v\n", err)
+		return "", fmt.Errorf("Request API Gagal: %v", err)
 	}
+	fmt.Printf("[ASSEMBLYAI] Transcript ID: %s\n", transcriptID)
 
-	// Step 3: Poll
+	// 3. Poll
 	return s.pollTranscriptionResult(transcriptID)
 }
 
-// Menggunakan Multipart Form Data (seperti OCR yang berhasil)
-func (s *SpeechService) uploadAudioMultipart(audioPath string) (string, error) {
+// Upload menggunakan Chunked Transfer Encoding (Paling stabil untuk file besar)
+func (s *SpeechService) uploadAudioChunked(audioPath string) (string, error) {
 	file, err := os.Open(audioPath)
 	if err != nil {
-		return "", fmt.Errorf("file open error: %v", err)
+		return "", err
 	}
 	defer file.Close()
 
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
+	// AssemblyAI support standard binary upload.
+	// Kuncinya adalah set header 'Transfer-Encoding: chunked' secara otomatis oleh Go
+	// jika kita pass io.Reader (file) langsung ke http.NewRequest
 
-	// Create form file
-	part, err := writer.CreateFormFile("file", filepath.Base(audioPath))
+	req, err := http.NewRequest("POST", "https://api.assemblyai.com/v2/upload", file)
 	if err != nil {
 		return "", err
 	}
-	io.Copy(part, file)
-	writer.Close()
 
-	req, err := http.NewRequest("POST", "https://api.assemblyai.com/v2/upload", body)
-	if err != nil {
-		return "", err
-	}
 	req.Header.Set("Authorization", s.APIKey)
-	req.Header.Set("Content-Type", writer.FormDataContentType())
+	// PENTING: Jangan set Content-Length manual, biarkan Go yang handle chunking
+	// PENTING: Jangan set Content-Type multipart, pakai default binary
 
-	client := &http.Client{Timeout: 300 * time.Second} // 5 menit timeout upload
+	client := &http.Client{
+		Timeout: 0, // No timeout for upload (biarkan sampai selesai)
+	}
+
 	resp, err := client.Do(req)
 	if err != nil {
-		// Cek koneksi internet server
-		return "", fmt.Errorf("connection error: %v", err)
+		return "", err
 	}
 	defer resp.Body.Close()
 
+	responseBytes, _ := io.ReadAll(resp.Body)
+
 	if resp.StatusCode != 200 {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("API Error (%d): %s", resp.StatusCode, string(bodyBytes))
+		return "", fmt.Errorf("API Error %d: %s", resp.StatusCode, string(responseBytes))
 	}
 
 	var result AssemblyAIUploadResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", err
+	if err := json.Unmarshal(responseBytes, &result); err != nil {
+		return "", fmt.Errorf("Parse Error: %v. Body: %s", err, string(responseBytes))
 	}
 
 	return result.UploadURL, nil
@@ -120,20 +125,21 @@ func (s *SpeechService) requestTranscription(audioURL string) (string, error) {
 	req.Header.Set("Authorization", s.APIKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{}
+	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("Status %d: %s", resp.StatusCode, string(body))
+	}
+
 	var result AssemblyAITranscriptResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return "", err
-	}
-
-	if result.Error != "" {
-		return "", fmt.Errorf(result.Error)
 	}
 
 	return result.ID, nil
@@ -142,13 +148,16 @@ func (s *SpeechService) requestTranscription(audioURL string) (string, error) {
 func (s *SpeechService) pollTranscriptionResult(transcriptID string) (string, error) {
 	url := fmt.Sprintf("https://api.assemblyai.com/v2/transcript/%s", transcriptID)
 
-	for i := 0; i < 60; i++ {
+	// Poll sampai 10 menit
+	for i := 0; i < 200; i++ {
 		req, _ := http.NewRequest("GET", url, nil)
 		req.Header.Set("Authorization", s.APIKey)
 
-		resp, err := http.DefaultClient.Do(req)
+		client := &http.Client{Timeout: 10 * time.Second}
+		resp, err := client.Do(req)
 		if err != nil {
-			return "", err
+			time.Sleep(3 * time.Second)
+			continue // Retry connection error
 		}
 
 		var result AssemblyAITranscriptResponse
@@ -163,5 +172,5 @@ func (s *SpeechService) pollTranscriptionResult(transcriptID string) (string, er
 
 		time.Sleep(3 * time.Second)
 	}
-	return "", fmt.Errorf("Timeout waiting for transcription")
+	return "", fmt.Errorf("Timeout: Proses terlalu lama (>10 menit)")
 }
