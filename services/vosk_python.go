@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"time"
 )
 
@@ -28,8 +29,20 @@ type AssemblyAITranscriptResponse struct {
 var speechService *SpeechService
 
 func InitVosk() {
+	// Ambil API Key dari Environment Variable
+	apiKey := os.Getenv("ASSEMBLYAI_API_KEY")
+
+	// Fallback ke key public (sering error/limit)
+	if apiKey == "" {
+		// Log warning di server
+		fmt.Println("[WARNING] ASSEMBLYAI_API_KEY tidak ditemukan di environment variables. Menggunakan shared key (mungkin expired).")
+		apiKey = "4d2a2e6811d04ea99f0c5fa89090ddc6"
+	} else {
+		fmt.Println("[INFO] Menggunakan Custom ASSEMBLYAI_API_KEY")
+	}
+
 	speechService = &SpeechService{
-		APIKey: "4d2a2e6811d04ea99f0c5fa89090ddc6",
+		APIKey: apiKey,
 	}
 }
 
@@ -40,8 +53,7 @@ func GetVoskService() *SpeechService {
 	return speechService
 }
 
-// Method 1: Upload langsung dari Stream (User -> Server -> AssemblyAI)
-// Ini bypass penyimpanan disk lokal yang sering bermasalah
+// Method 1: Upload Langsung (Chunked)
 func (s *SpeechService) UploadStream(reader io.Reader) (string, error) {
 	req, err := http.NewRequest("POST", "https://api.assemblyai.com/v2/upload", reader)
 	if err != nil {
@@ -49,28 +61,31 @@ func (s *SpeechService) UploadStream(reader io.Reader) (string, error) {
 	}
 
 	req.Header.Set("Authorization", s.APIKey)
-	// Default binary upload
 
-	client := &http.Client{Timeout: 0} // No timeout
+	client := &http.Client{Timeout: 0}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("Network Error: %v", err)
 	}
 	defer resp.Body.Close()
 
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode == 401 {
+		return "", fmt.Errorf("API Key Invalid/Expired. Harap set 'ASSEMBLYAI_API_KEY' di Railway Variables.")
+	}
 	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
 		return "", fmt.Errorf("API Error (%d): %s", resp.StatusCode, string(body))
 	}
 
 	var result AssemblyAIUploadResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(body, &result); err != nil {
 		return "", err
 	}
 	return result.UploadURL, nil
 }
 
-// Method 2: Request Transcript (Hanya butuh URL)
+// Method 2: Request Transcript
 func (s *SpeechService) RequestTranscription(audioURL string) (string, error) {
 	values := map[string]string{
 		"audio_url":     audioURL,
@@ -89,6 +104,10 @@ func (s *SpeechService) RequestTranscription(audioURL string) (string, error) {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == 401 {
+		return "", fmt.Errorf("API Key Invalid/Expired. Harap set 'ASSEMBLYAI_API_KEY' di Railway Variables.")
+	}
+
 	var result AssemblyAITranscriptResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return "", err
@@ -105,7 +124,7 @@ func (s *SpeechService) RequestTranscription(audioURL string) (string, error) {
 func (s *SpeechService) PollResult(transcriptID string) (string, error) {
 	url := fmt.Sprintf("https://api.assemblyai.com/v2/transcript/%s", transcriptID)
 
-	for i := 0; i < 200; i++ { // Poll 10 menit
+	for i := 0; i < 200; i++ {
 		req, _ := http.NewRequest("GET", url, nil)
 		req.Header.Set("Authorization", s.APIKey)
 
@@ -131,7 +150,7 @@ func (s *SpeechService) PollResult(transcriptID string) (string, error) {
 	return "", fmt.Errorf("Timeout polling")
 }
 
-// Keep interface for compatibility if needed, but we will use new methods primarily
+// Interface compatibility
 func (s *SpeechService) Transcribe(audioPath string) (string, error) {
-	return "", fmt.Errorf("Deprecated: Use UploadStream -> Request -> Poll")
+	return "", fmt.Errorf("Use UploadStream instead")
 }
