@@ -13,13 +13,13 @@ import (
 
 type AudioHandler struct {
 	Storage *services.StorageService
-	Vosk    *services.VoskService
+	Speech  *services.SpeechService
 }
 
 func NewAudioHandler() *AudioHandler {
 	return &AudioHandler{
 		Storage: services.NewStorageService(),
-		Vosk:    services.GetVoskService(),
+		Speech:  services.GetVoskService(),
 	}
 }
 

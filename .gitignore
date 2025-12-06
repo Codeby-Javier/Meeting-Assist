@@ -5,37 +5,14 @@
 *.dylib
 main
 
-# Test files
-*_test.go
-test*.txt
-test*.png
-test*.jpg
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Environment
-.env.local
-.env.*.local
-
 # Database
 *.db
 *.sqlite
-*.sqlite3
 
 # Logs
 *.log
-debug.log
 
-# Uploads (keep structure, not files)
+# Uploads
 uploads/audio/*
 !uploads/audio/.gitkeep
 uploads/documents/*
@@ -43,18 +20,12 @@ uploads/documents/*
 uploads/exports/*
 !uploads/exports/.gitkeep
 
-# Temporary files
-tmp/
-temp/
-*.tmp
+# IDE
+.vscode/
+.idea/
 
-# Dependencies (optional, uncomment if needed)
-# vendor/
+# OS
+.DS_Store
 
-# Models (large files)
-vosk-model-*
-*.model
-
-# Build artifacts
-dist/
-build/
+# Environment
+.env.local

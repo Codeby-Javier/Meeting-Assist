@@ -11,23 +11,12 @@ RUN go mod download
 COPY . .
 
 # Build the application
-RUN go build -o main .
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main .
 
-# Runtime stage  
-FROM python:3.9-slim
+# Runtime stage - minimal
+FROM alpine:latest
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    ffmpeg \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Python dependencies
-RUN pip install --no-cache-dir \
-    SpeechRecognition \
-    PyMuPDF \
-    Pillow \
-    requests
+RUN apk --no-cache add ca-certificates
 
 WORKDIR /app
 
@@ -37,8 +26,6 @@ COPY --from=builder /app/main .
 # Copy necessary files
 COPY templates ./templates
 COPY static ./static
-COPY scripts ./scripts
-COPY .env .env
 
 # Create upload directories
 RUN mkdir -p uploads/audio uploads/documents uploads/exports

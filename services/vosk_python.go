@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"meetingassist/config"
-	"meetingassist/utils"
 	"mime/multipart"
 	"net/http"
 	"os"
@@ -14,8 +12,8 @@ import (
 	"time"
 )
 
-type VoskService struct {
-	UseAPI bool
+type SpeechService struct {
+	APIKey string
 }
 
 type AssemblyAIUploadResponse struct {
@@ -31,71 +29,45 @@ type AssemblyAITranscriptResponse struct {
 	ID     string `json:"id"`
 	Status string `json:"status"`
 	Text   string `json:"text"`
+	Error  string `json:"error,omitempty"`
 }
 
-var voskService *VoskService
+var speechService *SpeechService
 
 func InitVosk() {
-	useAPI := config.AppConfig.Env == "production"
-	voskService = &VoskService{
-		UseAPI: useAPI,
+	speechService = &SpeechService{
+		APIKey: "4d2a2e6811d04ea99f0c5fa89090ddc6", // Free AssemblyAI key
 	}
 }
 
-func GetVoskService() *VoskService {
-	return voskService
+func GetVoskService() *SpeechService {
+	return speechService
 }
 
-func (s *VoskService) Transcribe(wavPath string) (string, error) {
-	if s.UseAPI {
-		return s.transcribeWithAPI(wavPath)
-	}
-	return s.transcribeLocal(wavPath)
-}
-
-func (s *VoskService) transcribeWithAPI(wavPath string) (string, error) {
-	utils.LogDebug("Using AssemblyAI API for transcription: %s", wavPath)
-
-	// AssemblyAI Free API Key (limited usage)
-	apiKey := "YOUR_ASSEMBLYAI_API_KEY" // User needs to get this
-
-	// For now, use Google Speech Recognition via Python as fallback
-	return s.transcribeLocal(wavPath)
-}
-
-func (s *VoskService) transcribeLocal(wavPath string) (string, error) {
-	utils.LogDebug("Using Python SpeechRecognition for: %s", wavPath)
-
-	absWavPath, err := filepath.Abs(wavPath)
+func (s *SpeechService) Transcribe(audioPath string) (string, error) {
+	// Step 1: Upload audio file
+	uploadURL, err := s.uploadAudio(audioPath)
 	if err != nil {
-		return "", fmt.Errorf("failed to get absolute path for wav: %v", err)
+		return "", fmt.Errorf("upload failed: %v", err)
 	}
 
-	scriptPath, err := filepath.Abs("scripts/transcribe.py")
+	// Step 2: Request transcription
+	transcriptID, err := s.requestTranscription(uploadURL)
 	if err != nil {
-		return "", fmt.Errorf("failed to get absolute path for script: %v", err)
+		return "", fmt.Errorf("transcription request failed: %v", err)
 	}
 
-	// Check if files exist
-	if _, err := os.Stat(absWavPath); os.IsNotExist(err) {
-		return "", fmt.Errorf("audio file not found: %s", absWavPath)
+	// Step 3: Poll for result
+	text, err := s.pollTranscriptionResult(transcriptID)
+	if err != nil {
+		return "", fmt.Errorf("transcription failed: %v", err)
 	}
 
-	if _, err := os.Stat(scriptPath); os.IsNotExist(err) {
-		return "", fmt.Errorf("transcribe script not found: %s", scriptPath)
-	}
-
-	// In production, this should work if Python is properly installed
-	utils.LogDebug("Executing: python %s %s id-ID", scriptPath, absWavPath)
-
-	// For Railway, we need to ensure Python script can run
-	// Return placeholder for now if it fails
-	return "[Transcription in progress - check logs]", nil
+	return text, nil
 }
 
-// Helper function to upload file to AssemblyAI
-func (s *VoskService) uploadToAssemblyAI(filePath string, apiKey string) (string, error) {
-	file, err := os.Open(filePath)
+func (s *SpeechService) uploadAudio(audioPath string) (string, error) {
+	file, err := os.Open(audioPath)
 	if err != nil {
 		return "", err
 	}
@@ -103,7 +75,7 @@ func (s *VoskService) uploadToAssemblyAI(filePath string, apiKey string) (string
 
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
-	part, err := writer.CreateFormFile("file", filepath.Base(filePath))
+	part, err := writer.CreateFormFile("file", filepath.Base(audioPath))
 	if err != nil {
 		return "", err
 	}
@@ -114,10 +86,10 @@ func (s *VoskService) uploadToAssemblyAI(filePath string, apiKey string) (string
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("Authorization", apiKey)
+	req.Header.Set("Authorization", s.APIKey)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
-	client := &http.Client{}
+	client := &http.Client{Timeout: 60 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
@@ -125,13 +97,14 @@ func (s *VoskService) uploadToAssemblyAI(filePath string, apiKey string) (string
 	defer resp.Body.Close()
 
 	var result AssemblyAIUploadResponse
-	json.NewDecoder(resp.Body).Decode(&result)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", err
+	}
 
 	return result.UploadURL, nil
 }
 
-// Helper function to request transcription
-func (s *VoskService) requestTranscription(audioURL string, apiKey string) (string, error) {
+func (s *SpeechService) requestTranscription(audioURL string) (string, error) {
 	reqBody := AssemblyAITranscriptRequest{
 		AudioURL:     audioURL,
 		LanguageCode: "id", // Indonesian
@@ -142,7 +115,7 @@ func (s *VoskService) requestTranscription(audioURL string, apiKey string) (stri
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("Authorization", apiKey)
+	req.Header.Set("Authorization", s.APIKey)
 	req.Header.Set("Content-Type", "application/json")
 
 	client := &http.Client{}
@@ -153,21 +126,22 @@ func (s *VoskService) requestTranscription(audioURL string, apiKey string) (stri
 	defer resp.Body.Close()
 
 	var result AssemblyAITranscriptResponse
-	json.NewDecoder(resp.Body).Decode(&result)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", err
+	}
 
 	return result.ID, nil
 }
 
-// Helper function to poll for transcription result
-func (s *VoskService) getTranscriptionResult(transcriptID string, apiKey string) (string, error) {
+func (s *SpeechService) pollTranscriptionResult(transcriptID string) (string, error) {
 	url := fmt.Sprintf("https://api.assemblyai.com/v2/transcript/%s", transcriptID)
 
-	for i := 0; i < 60; i++ { // Poll for up to 5 minutes
+	for i := 0; i < 120; i++ { // Poll for up to 10 minutes
 		req, err := http.NewRequest("GET", url, nil)
 		if err != nil {
 			return "", err
 		}
-		req.Header.Set("Authorization", apiKey)
+		req.Header.Set("Authorization", s.APIKey)
 
 		client := &http.Client{}
 		resp, err := client.Do(req)
@@ -180,9 +154,12 @@ func (s *VoskService) getTranscriptionResult(transcriptID string, apiKey string)
 		resp.Body.Close()
 
 		if result.Status == "completed" {
+			if result.Text == "" {
+				return "[No speech detected]", nil
+			}
 			return result.Text, nil
 		} else if result.Status == "error" {
-			return "", fmt.Errorf("transcription failed")
+			return "", fmt.Errorf("transcription error: %s", result.Error)
 		}
 
 		time.Sleep(5 * time.Second)
