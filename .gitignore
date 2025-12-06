@@ -1,9 +1,10 @@
 # Binaries
 *.exe
 *.dll
-*.so
-*.dylib
 main
+
+# Vendor
+vendor/
 
 # Database
 *.db
@@ -20,12 +21,6 @@ uploads/documents/*
 uploads/exports/*
 !uploads/exports/.gitkeep
 
-# IDE
-.vscode/
-.idea/
-
-# OS
-.DS_Store
-
-# Environment
+# Env
+.env
 .env.local
