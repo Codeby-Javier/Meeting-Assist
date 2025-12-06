@@ -11,37 +11,37 @@ func ProcessAudio(audioID uint, filePath string) {
 	db := config.GetDB()
 	speechService := services.GetVoskService()
 
-	// Update status to processing
+	// Update status
 	db.Model(&models.Audio{}).Where("id = ?", audioID).Update("status", "processing")
 
-	fmt.Printf("Processing audio ID %d, Path: %s\n", audioID, filePath)
-
-	// Transcribe using AssemblyAI - No local conversion needed
-	// AssemblyAI supports MP3, WAV, M4A, OGG etc natively
+	// Transcribe
 	text, err := speechService.Transcribe(filePath)
 
 	if err != nil {
-		fmt.Printf("Worker Error: %v\n", err)
-		// Mark as failed
-		db.Model(&models.Audio{}).Where("id = ?", audioID).Update("status", "failed")
+		fmt.Printf("AUDIO ERROR: %v\n", err)
 
-		// Optional: Save error message to text field for debug visibility
-		// db.Model(&models.Audio{}).Where("id = ?", audioID).Update("filename", err.Error())
+		// PENTING: Simpan pesan error ke database agar terlihat di UI
+		// Kita simpan object failed, dan text nya berisi pesan error
+		db.Model(&models.Audio{}).Where("id = ?", audioID).Updates(map[string]interface{}{
+			"status": "failed",
+		})
+
+		// Buat entry transcript yang berisi detail error
+		// Jadi user bisa klik "Lihat" dan melihat errornya apa
+		errorTranscript := models.AudioTranscript{
+			AudioID: audioID,
+			Text:    fmt.Sprintf("GAGAL: %v. Coba file yang lebih kecil atau format berbeda (MP3/WAV).", err),
+		}
+		db.Create(&errorTranscript)
 		return
 	}
 
-	// Save transcript
+	// Success
 	transcript := models.AudioTranscript{
 		AudioID: audioID,
 		Text:    text,
 	}
-
-	if err := db.Create(&transcript).Error; err != nil {
-		fmt.Printf("DB Save Error: %v\n", err)
-		db.Model(&models.Audio{}).Where("id = ?", audioID).Update("status", "failed")
-		return
-	}
+	db.Create(&transcript)
 
 	db.Model(&models.Audio{}).Where("id = ?", audioID).Update("status", "completed")
-	fmt.Printf("Audio ID %d completed successfully\n", audioID)
 }
