@@ -1,37 +1,22 @@
-# Build stage
-FROM golang:1.21-alpine AS builder
+# Use official Go image
+FROM golang:1.21-alpine
 
 WORKDIR /app
 
 # Copy go mod files
 COPY go.mod go.sum ./
+
+# Download dependencies
 RUN go mod download
 
 # Copy source code
 COPY . .
 
-# Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main .
-
-# Runtime stage - minimal
-FROM alpine:latest
-
-RUN apk --no-cache add ca-certificates
-
-WORKDIR /app
-
-# Copy binary from builder
-COPY --from=builder /app/main .
-
-# Copy necessary files
-COPY templates ./templates
-COPY static ./static
-
-# Create upload directories
-RUN mkdir -p uploads/audio uploads/documents uploads/exports
+# Build
+RUN go build -o main .
 
 # Expose port
 EXPOSE 8082
 
-# Run the application
+# Run
 CMD ["./main"]
