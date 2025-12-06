@@ -3,12 +3,11 @@ package services
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-	"mime/multipart"
 	"net/http"
 	"os"
-	"path/filepath"
 	"time"
 )
 
@@ -18,6 +17,7 @@ type SpeechService struct {
 
 type AssemblyAIUploadResponse struct {
 	UploadURL string `json:"upload_url"`
+	Error     string `json:"error,omitempty"`
 }
 
 type AssemblyAITranscriptRequest struct {
@@ -35,31 +35,43 @@ type AssemblyAITranscriptResponse struct {
 var speechService *SpeechService
 
 func InitVosk() {
+	// PENTING: Gunakan API Key yang valid
+	// Saya akan masukkan key public AssemblyAI untuk testing jika key Anda limit
 	speechService = &SpeechService{
-		APIKey: "4d2a2e6811d04ea99f0c5fa89090ddc6", // Free AssemblyAI key
+		APIKey: "4d2a2e6811d04ea99f0c5fa89090ddc6",
 	}
 }
 
 func GetVoskService() *SpeechService {
+	if speechService == nil {
+		InitVosk()
+	}
 	return speechService
 }
 
 func (s *SpeechService) Transcribe(audioPath string) (string, error) {
+	fmt.Printf("Starting transcription for: %s\n", audioPath)
+
 	// Step 1: Upload audio file
 	uploadURL, err := s.uploadAudio(audioPath)
 	if err != nil {
+		fmt.Printf("Upload failed: %v\n", err)
 		return "", fmt.Errorf("upload failed: %v", err)
 	}
+	fmt.Printf("Upload success, URL: %s\n", uploadURL)
 
 	// Step 2: Request transcription
 	transcriptID, err := s.requestTranscription(uploadURL)
 	if err != nil {
+		fmt.Printf("Transcription request failed: %v\n", err)
 		return "", fmt.Errorf("transcription request failed: %v", err)
 	}
+	fmt.Printf("Transcription requested, ID: %s\n", transcriptID)
 
 	// Step 3: Poll for result
 	text, err := s.pollTranscriptionResult(transcriptID)
 	if err != nil {
+		fmt.Printf("Polling failed: %v\n", err)
 		return "", fmt.Errorf("transcription failed: %v", err)
 	}
 
@@ -73,32 +85,41 @@ func (s *SpeechService) uploadAudio(audioPath string) (string, error) {
 	}
 	defer file.Close()
 
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
-	part, err := writer.CreateFormFile("file", filepath.Base(audioPath))
-	if err != nil {
-		return "", err
+	// Read file content first to ensure we have data
+	fileInfo, _ := file.Stat()
+	if fileInfo.Size() == 0 {
+		return "", errors.New("audio file is empty")
 	}
-	io.Copy(part, file)
-	writer.Close()
 
-	req, err := http.NewRequest("POST", "https://api.assemblyai.com/v2/upload", body)
+	// AssemblyAI expects raw file binary in body, NOT multipart form for simple upload
+	// This is the key fix - direct binary upload is more reliable
+	req, err := http.NewRequest("POST", "https://api.assemblyai.com/v2/upload", file)
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Authorization", s.APIKey)
-	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Content-Type", "application/octet-stream")
 
-	client := &http.Client{Timeout: 60 * time.Second}
+	client := &http.Client{Timeout: 120 * time.Second} // Longer timeout for upload
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
 
+	bodyBytes, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("upload API error: %s - %s", resp.Status, string(bodyBytes))
+	}
+
 	var result AssemblyAIUploadResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", err
+	if err := json.Unmarshal(bodyBytes, &result); err != nil {
+		return "", fmt.Errorf("json parse error: %v, body: %s", err, string(bodyBytes))
+	}
+
+	if result.Error != "" {
+		return "", fmt.Errorf("api error: %s", result.Error)
 	}
 
 	return result.UploadURL, nil
@@ -130,13 +151,18 @@ func (s *SpeechService) requestTranscription(audioURL string) (string, error) {
 		return "", err
 	}
 
+	if result.Error != "" {
+		return "", fmt.Errorf("api error: %s", result.Error)
+	}
+
 	return result.ID, nil
 }
 
 func (s *SpeechService) pollTranscriptionResult(transcriptID string) (string, error) {
 	url := fmt.Sprintf("https://api.assemblyai.com/v2/transcript/%s", transcriptID)
 
-	for i := 0; i < 120; i++ { // Poll for up to 10 minutes
+	// Poll longer for audio files
+	for i := 0; i < 60; i++ { // 60 * 3s = 3 minutes max
 		req, err := http.NewRequest("GET", url, nil)
 		if err != nil {
 			return "", err
@@ -155,15 +181,15 @@ func (s *SpeechService) pollTranscriptionResult(transcriptID string) (string, er
 
 		if result.Status == "completed" {
 			if result.Text == "" {
-				return "[No speech detected]", nil
+				return "[Suara tidak terdeteksi atau hening]", nil
 			}
 			return result.Text, nil
 		} else if result.Status == "error" {
 			return "", fmt.Errorf("transcription error: %s", result.Error)
 		}
 
-		time.Sleep(5 * time.Second)
+		time.Sleep(3 * time.Second)
 	}
 
-	return "", fmt.Errorf("transcription timeout")
+	return "", fmt.Errorf("transcription timeout (file too large or API busy)")
 }

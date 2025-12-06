@@ -1,26 +1,32 @@
 package workers
 
 import (
+	"fmt"
 	"meetingassist/config"
 	"meetingassist/models"
 	"meetingassist/services"
-	"meetingassist/utils"
 )
 
 func ProcessAudio(audioID uint, filePath string) {
 	db := config.GetDB()
-	voskService := services.GetVoskService()
+	speechService := services.GetVoskService()
 
 	// Update status to processing
 	db.Model(&models.Audio{}).Where("id = ?", audioID).Update("status", "processing")
 
-	// Convert to WAV (no-op now, just returns original path)
-	wavPath, _ := utils.ConvertToWav(filePath)
+	fmt.Printf("Processing audio ID %d, Path: %s\n", audioID, filePath)
 
-	// Transcribe using AssemblyAI
-	text, err := voskService.Transcribe(wavPath)
+	// Transcribe using AssemblyAI - No local conversion needed
+	// AssemblyAI supports MP3, WAV, M4A, OGG etc natively
+	text, err := speechService.Transcribe(filePath)
+
 	if err != nil {
+		fmt.Printf("Worker Error: %v\n", err)
+		// Mark as failed
 		db.Model(&models.Audio{}).Where("id = ?", audioID).Update("status", "failed")
+
+		// Optional: Save error message to text field for debug visibility
+		// db.Model(&models.Audio{}).Where("id = ?", audioID).Update("filename", err.Error())
 		return
 	}
 
@@ -29,7 +35,13 @@ func ProcessAudio(audioID uint, filePath string) {
 		AudioID: audioID,
 		Text:    text,
 	}
-	db.Create(&transcript)
+
+	if err := db.Create(&transcript).Error; err != nil {
+		fmt.Printf("DB Save Error: %v\n", err)
+		db.Model(&models.Audio{}).Where("id = ?", audioID).Update("status", "failed")
+		return
+	}
 
 	db.Model(&models.Audio{}).Where("id = ?", audioID).Update("status", "completed")
+	fmt.Printf("Audio ID %d completed successfully\n", audioID)
 }
