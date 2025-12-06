@@ -107,11 +107,18 @@
                         else if (item.status === 'failed') statusBadge = 'danger';
                         else if (item.status === 'processing' || item.status === 'pending') statusBadge = 'warning';
 
+                        let statusText = item.status;
+                        if (item.status === 'completed') statusText = 'Selesai';
+                        else if (item.status === 'failed') statusText = 'Gagal';
+                        else if (item.status === 'processing') statusText = 'Diproses';
+                        else if (item.status === 'uploaded') statusText = 'Diunggah';
+                        else if (item.status === 'pending') statusText = 'Menunggu';
+
                         audioList.innerHTML += `
                             <tr>
                                 <td>${item.filename}</td>
                                 <td>${date}</td>
-                                <td><span class="badge bg-${statusBadge}">${item.status}</span></td>
+                                <td><span class="badge bg-${statusBadge}">${statusText}</span></td>
                                 <td>
                                     ${item.status === 'completed' ? `<a href="/editor/audio/${item.id}" class="btn btn-sm btn-primary">Lihat/Edit</a>` : ''}
                                 </td>
@@ -133,11 +140,18 @@
                         else if (item.status === 'failed') statusBadge = 'danger';
                         else if (item.status === 'processing' || item.status === 'pending') statusBadge = 'warning';
 
+                        let statusText = item.status;
+                        if (item.status === 'completed') statusText = 'Selesai';
+                        else if (item.status === 'failed') statusText = 'Gagal';
+                        else if (item.status === 'processing') statusText = 'Diproses';
+                        else if (item.status === 'uploaded') statusText = 'Diunggah';
+                        else if (item.status === 'pending') statusText = 'Menunggu';
+
                         docList.innerHTML += `
                             <tr>
                                 <td>${item.filename}</td>
                                 <td>${date}</td>
-                                <td><span class="badge bg-${statusBadge}">${item.status}</span></td>
+                                <td><span class="badge bg-${statusBadge}">${statusText}</span></td>
                                 <td>
                                     ${item.status === 'completed' ? `<a href="/editor/document/${item.id}" class="btn btn-sm btn-primary">Lihat/Edit</a>` : ''}
                                 </td>
