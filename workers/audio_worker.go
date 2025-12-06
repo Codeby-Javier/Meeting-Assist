@@ -7,32 +7,25 @@ import (
 	"meetingassist/services"
 )
 
-func ProcessAudio(audioID uint, filePath string) {
+// ProcessAudioURL handles transcription from an already uploaded Cloud URL
+func ProcessAudioURL(audioID uint, audioURL string) {
 	db := config.GetDB()
 	speechService := services.GetVoskService()
 
 	// Update status
 	db.Model(&models.Audio{}).Where("id = ?", audioID).Update("status", "processing")
 
-	// Transcribe
-	text, err := speechService.Transcribe(filePath)
-
+	// 1. Request Transcription
+	transcriptID, err := speechService.RequestTranscription(audioURL)
 	if err != nil {
-		fmt.Printf("AUDIO ERROR: %v\n", err)
+		reportError(db, audioID, fmt.Sprintf("Request Transkrip Gagal: %v", err))
+		return
+	}
 
-		// PENTING: Simpan pesan error ke database agar terlihat di UI
-		// Kita simpan object failed, dan text nya berisi pesan error
-		db.Model(&models.Audio{}).Where("id = ?", audioID).Updates(map[string]interface{}{
-			"status": "failed",
-		})
-
-		// Buat entry transcript yang berisi detail error
-		// Jadi user bisa klik "Lihat" dan melihat errornya apa
-		errorTranscript := models.AudioTranscript{
-			AudioID: audioID,
-			Text:    fmt.Sprintf("GAGAL: %v. Coba file yang lebih kecil atau format berbeda (MP3/WAV).", err),
-		}
-		db.Create(&errorTranscript)
+	// 2. Poll Result
+	text, err := speechService.PollResult(transcriptID)
+	if err != nil {
+		reportError(db, audioID, fmt.Sprintf("Polling Gagal: %v", err))
 		return
 	}
 
@@ -44,4 +37,23 @@ func ProcessAudio(audioID uint, filePath string) {
 	db.Create(&transcript)
 
 	db.Model(&models.Audio{}).Where("id = ?", audioID).Update("status", "completed")
+}
+
+// Deprecated: Old file-based processor (kept for interface compatibility if needed)
+func ProcessAudio(audioID uint, filePath string) {
+	// No-op
+}
+
+func reportError(db interface{}, audioID uint, msg string) {
+	// Perlu type assertion atau akses DB langsung
+	// Sederhananya kita asumsikan db adalah *gorm.DB dari context
+	database := config.GetDB()
+
+	database.Model(&models.Audio{}).Where("id = ?", audioID).Update("status", "failed")
+
+	errorTranscript := models.AudioTranscript{
+		AudioID: audioID,
+		Text:    msg,
+	}
+	database.Create(&errorTranscript)
 }

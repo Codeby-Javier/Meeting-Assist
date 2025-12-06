@@ -12,41 +12,45 @@ import (
 )
 
 type AudioHandler struct {
-	Storage *services.StorageService
-	Speech  *services.SpeechService
+	Speech *services.SpeechService
 }
 
 func NewAudioHandler() *AudioHandler {
 	return &AudioHandler{
-		Storage: services.NewStorageService(),
-		Speech:  services.GetVoskService(),
+		Speech: services.GetVoskService(),
 	}
 }
 
 func (h *AudioHandler) UploadAudio(c *gin.Context) {
-	file, err := c.FormFile("audio")
+	// 1. Terima File
+	fileHeader, err := c.FormFile("audio")
 	if err != nil {
 		utils.ErrorResponse(c, http.StatusBadRequest, "No audio file uploaded")
 		return
 	}
 
-	if file.Size > config.AppConfig.MaxAudioSize {
-		utils.ErrorResponse(c, http.StatusBadRequest, "File too large")
-		return
-	}
-
-	path, err := h.Storage.SaveFile(file, "audio")
+	// 2. Upload Langsung ke AssemblyAI (Tanpa Simpan Lokal)
+	srcFile, err := fileHeader.Open()
 	if err != nil {
-		utils.ErrorResponse(c, http.StatusInternalServerError, "Failed to save file")
+		utils.ErrorResponse(c, http.StatusInternalServerError, "Failed to open file stream")
+		return
+	}
+	defer srcFile.Close()
+
+	// Upload Stream
+	uploadURL, err := h.Speech.UploadStream(srcFile)
+	if err != nil {
+		utils.ErrorResponse(c, http.StatusInternalServerError, "Upload ke Cloud Gagal: "+err.Error())
 		return
 	}
 
+	// 3. Simpan Record ke DB
 	userID := c.GetUint("user_id")
 	audio := models.Audio{
 		UserID:   userID,
-		Filename: file.Filename,
-		FilePath: path,
-		Status:   "pending",
+		Filename: fileHeader.Filename,
+		FilePath: uploadURL, // Simpan URL Cloud, bukan path lokal!
+		Status:   "uploaded",
 	}
 
 	db := config.GetDB()
@@ -55,10 +59,10 @@ func (h *AudioHandler) UploadAudio(c *gin.Context) {
 		return
 	}
 
-	// Trigger processing (async)
-	go workers.ProcessAudio(audio.ID, path)
+	// 4. Trigger Worker untuk Polling (Kirim URL Cloud)
+	go workers.ProcessAudioURL(audio.ID, uploadURL)
 
-	utils.SuccessResponse(c, http.StatusAccepted, "Audio uploaded and processing started", audio)
+	utils.SuccessResponse(c, http.StatusAccepted, "Audio uploaded to cloud, processing started", audio)
 }
 
 func (h *AudioHandler) GetAudios(c *gin.Context) {
@@ -88,8 +92,6 @@ func (h *AudioHandler) UpdateTranscript(c *gin.Context) {
 		return
 	}
 
-	// Update the first transcript for simplicity
-	// In a real app, we might have multiple segments
 	var transcript models.AudioTranscript
 	if err := config.GetDB().Where("audio_id = ?", id).First(&transcript).Error; err != nil {
 		utils.ErrorResponse(c, http.StatusNotFound, "Transcript not found")
