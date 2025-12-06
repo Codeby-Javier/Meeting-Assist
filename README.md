@@ -103,7 +103,7 @@ Proyek ini sangat cocok untuk notulis, mahasiswa, dan profesional yang membutuhk
 
 ## 👨‍💻 Author & Social
 
-Project ini dikembangkan dengan penuh ❤️ oleh **Ibnu JZ**.
+Project ini dikembangkan oleh **Ibnu JZ**.
 Jangan lupa follow Instagram saya untuk update proyek menarik lainnya!
 
 <a href="https://instagram.com/ibnu.jz" target="_blank">
